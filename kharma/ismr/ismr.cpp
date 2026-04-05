@@ -81,14 +81,14 @@ TaskStatus ISMR::DerefinePoles(MeshData<Real> *md)
 {
     Flag("ISMR_DerefinePoles");
     // TODO this routine only applies to polar boundaries for now.
-    auto pmesh = md->GetMeshPointer();
+    auto *pmesh = md->GetMeshPointer();
     const uint nlevels = pmesh->packages.Get("ISMR")->Param<uint>("nlevels");
 
     // Figure out indices
     int ng = Globals::nghost;
     for (int iblock=0; iblock < md->NumBlocks(); iblock++) {
         auto& rc = md->GetBlockData(iblock);
-        auto pmb = rc->GetBlockPointer();
+        auto *pmb = rc->GetBlockPointer();
         PackIndexMap cons_map, cons_map_utop;
         auto vars = rc->PackVariables(std::vector<MetadataFlag>{Metadata::Conserved, Metadata::Cell, Metadata::Independent}, cons_map);
         auto vars_avg = rc->PackVariables(std::vector<std::string>{"ismr.vars_avg"});
@@ -151,7 +151,7 @@ TaskStatus ISMR::DerefinePoles(MeshData<Real> *md)
                         // The usual inverter is not EMHD-aware, so it's going to dump all of T into the
                         // ideal GRMHD fluid variables
                         Inverter::u_to_p<Inverter::Type::kastaun>(G, vars_utop, m_u, gam, k, j_c, i, P, m_p,
-                                                                  Loci::center, 8, 1e-8, false);
+                                                                  Loci::center, 200, 1e-30, false);
                         // Consistent with that, we zero out the EMHD extra variables.  This switches theories to
                         // evolving ideal GRMHD in ISMR region, but conserves the components of T themselves
                         if (m_u.Q >= 0) vars_utop(m_u.Q, k, j_c, i) = 0.;

@@ -172,7 +172,12 @@ KOKKOS_INLINE_FUNCTION int determine_floors(const GRCoordinates& G, const Variab
  * @return pflag: in NOF, a number <32 representing any failure of the U->P solve.  Otherwise 0.
  */
 template<InjectionFrame frame>
-KOKKOS_INLINE_FUNCTION int apply_floors(FLOOR_ONE_ARGS);
+KOKKOS_INLINE_FUNCTION int apply_floors(FLOOR_ONE_ARGS)
+{
+    // Default: unreachable for mixed frames (dispatched before reaching here)
+    Kokkos::abort("apply_floors called with unsupported InjectionFrame!");
+    return 0;
+}
 
 template<>
 KOKKOS_INLINE_FUNCTION int apply_floors<InjectionFrame::fluid>(FLOOR_ONE_ARGS)
@@ -285,7 +290,7 @@ KOKKOS_INLINE_FUNCTION int apply_floors<InjectionFrame::normal_onedw>(FLOOR_ONE_
 
     // Recover primitive variables from conserved versions
     return Inverter::u_to_p<Inverter::Type::onedw>(G, U, m_u, gam, k, j, i, P, m_p, Loci::center,
-                                                    8, 1e-8, false);
+                                                    200, 1e-30, false);
 }
 
 template<>
@@ -313,7 +318,7 @@ KOKKOS_INLINE_FUNCTION int apply_floors<InjectionFrame::normal_kastaun>(FLOOR_ON
 
     // Recover new primitive variables.  Use Kastaun with safe parameters so we don't fail often
     return Inverter::u_to_p<Inverter::Type::kastaun>(G, U, m_u, gam, k, j, i, P, m_p, Loci::center,
-                                                     25, 1e-12, true);
+                                                     200, 1e-30, true);
 }
 
 /**

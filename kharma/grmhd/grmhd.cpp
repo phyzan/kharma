@@ -254,7 +254,7 @@ Real EstimateTimestep(MeshData<Real> *md)
     // This function is a nice demo of why client-side flagging
     // like this is inadvisable: you have to EndFlag() at every different return
     Flag("EstimateTimestep");
-    auto pmesh = md->GetMeshPointer();
+    auto *pmesh = md->GetMeshPointer();
     auto& globals = pmesh->packages.Get("Globals")->AllParams();
     const auto& grmhd_pars = pmesh->packages.Get("GRMHD")->AllParams();
 
@@ -307,7 +307,7 @@ Real EstimateTimestep(MeshData<Real> *md)
     // TODO maybe split normal vs ISMR (/Excised pole/etc) timesteps? Make normal calculation mesh-wise?
     double min_ndt = std::numeric_limits<double>::max();
     for (auto &pmb : pmesh->block_list) {
-        auto rc = pmb->meshblock_data.Get(md->StageName()).get();
+        auto *rc = pmb->meshblock_data.Get(md->StageName()).get();
         // We only need this block-wise to check boundary flags for ISMR, could special-case that
         const bool is_inner_x2 = KBoundaries::IsPhysicalBoundary(pmb, BoundaryFace::inner_x2);
         const bool is_outer_x2 = KBoundaries::IsPhysicalBoundary(pmb, BoundaryFace::outer_x2);
@@ -370,7 +370,7 @@ Real EstimateTimestep(MeshData<Real> *md)
 Real EstimateRadiativeTimestep(MeshData<Real> *md)
 {
     Flag("EstimateRadiativeTimestep");
-    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
+    auto *pmb0 = md->GetBlockData(0)->GetBlockPointer();
 
     const auto& grmhd_pars = pmb0->packages.Get("GRMHD")->AllParams();
     const bool phase_speed = grmhd_pars.Get<bool>("use_dt_light_phase_speed");
@@ -440,7 +440,7 @@ Real EstimateRadiativeTimestep(MeshData<Real> *md)
 
 AmrTag CheckRefinement(MeshBlockData<Real> *rc)
 {
-    auto pmb = rc->GetBlockPointer();
+    auto *pmb = rc->GetBlockPointer();
     auto v = rc->Get("prims.rho").data;
 
     IndexDomain domain = IndexDomain::interior;
@@ -470,8 +470,8 @@ AmrTag CheckRefinement(MeshBlockData<Real> *rc)
 
 TaskStatus PostStepDiagnostics(const SimTime& tm, MeshData<Real> *md)
 {
-    auto pmesh = md->GetMeshPointer();
-    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
+    auto *pmesh = md->GetMeshPointer();
+    auto *pmb0 = md->GetBlockData(0)->GetBlockPointer();
     // Options
     const auto& pars = pmesh->packages.Get("Globals")->AllParams();
     const int extra_checks = pars.Get<int>("extra_checks");
@@ -510,7 +510,7 @@ void CancelBoundaryU3(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
     if (coarse) return;
 
     // Pull boundary properties
-    auto pmb = rc->GetBlockPointer();
+    auto *pmb = rc->GetBlockPointer();
     const BoundaryFace bface = KBoundaries::BoundaryFaceOf(domain);
     const bool binner = KBoundaries::BoundaryIsInner(bface);
     const auto bname = KBoundaries::BoundaryName(bface);
@@ -544,7 +544,7 @@ void CancelBoundaryU3(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
                 parthenon::par_for_inner(member, bi.ks, bi.ke,
                     [&](const int& k) {
                     Inverter::u_to_p<Inverter::Type::kastaun>(G, U, m_u, gam, k, jf, i, P, m_p, Loci::center,
-                                                              25, 1e-12, false);
+                                                              200, 1e-30, false);
                     }
                 );
             }
@@ -585,7 +585,7 @@ void CancelBoundaryT3(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
     if (coarse) return;
 
     // Pull boundary properties
-    auto pmb = rc->GetBlockPointer();
+    auto *pmb = rc->GetBlockPointer();
     const BoundaryFace bface = KBoundaries::BoundaryFaceOf(domain);
     const bool binner = KBoundaries::BoundaryIsInner(bface);
     const auto bname = KBoundaries::BoundaryName(bface);
@@ -641,7 +641,7 @@ void CancelBoundaryT3(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
                     U(m_u.U3, k, jf, i) -= T3_avg;
                     // Recover primitive GRMHD variables from our modified U
                     Inverter::u_to_p<Inverter::Type::kastaun>(G, U, m_u, gam, k, jf, i, P, m_p, Loci::center,
-                                                              25, 1e-12, false);
+                                                              200, 1e-30, false);
                     // Floor them
                     int fflag = Floors::apply_geo_floors(G, P, m_p, gam, k, jf, i, floors, floors, Loci::center);
                     // Recalculate U on anything we floored
@@ -655,7 +655,7 @@ void CancelBoundaryT3(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
 
 void UpdateAveragedCtop(MeshData<Real> *md)
 {
-    auto pmesh = md->GetMeshPointer();
+    auto *pmesh = md->GetMeshPointer();
     if (pmesh->packages.AllPackages().count("B_CT"))
         B_CT::MeshUtoP(md, IndexDomain::interior);
     auto& params = pmesh->packages.Get<KHARMAPackage>("Boundaries")->AllParams();

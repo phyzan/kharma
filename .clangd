@@ -1,5 +1,9 @@
 CompileFlags:
   CompilationDatabase: build/
+  Add:
+    - "-I/opt/rocm/include"
+    - "-I/opt/rocm/hip/include"
+    - "-D__HIP_PLATFORM_AMD__"
 
 Diagnostics:
   UnusedIncludes: None

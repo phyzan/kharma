@@ -34,6 +34,7 @@
 #pragma once
 
 #include "floors.hpp"
+#include "floors_functions.hpp"
 
 #include "domain.hpp"
 
@@ -45,7 +46,7 @@ namespace Floors {
 template<InjectionFrame frame>
 TaskStatus ApplyFloorsInFrame(MeshData<Real> *md, IndexDomain domain)
 {
-    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
+    auto *pmb0 = md->GetBlockData(0)->GetBlockPointer();
 
     PackIndexMap prims_map, cons_map;
     auto P = md->PackVariables(std::vector<MetadataFlag>{Metadata::GetUserFlag("Primitive")}, prims_map);

@@ -138,10 +138,10 @@ void KHARMADriver::AddFullSyncRegion(TaskCollection& tc, std::shared_ptr<MeshDat
 TaskID KHARMADriver::AddBoundarySync(const TaskID t_start, TaskList &tl, std::shared_ptr<MeshData<Real>> &mc1)
 {
     Flag("AddBoundarySync");
-    auto t_start_sync = t_start;
+    const auto& t_start_sync = t_start;
 
     // Pull the mesh pointer from mc1 so we can be a static method
-    auto pmesh = mc1->GetMeshPointer();
+    auto *pmesh = mc1->GetMeshPointer();
     auto &params = pmesh->packages.Get("Driver")->AllParams();
     bool multilevel = pmesh->multilevel;
 
@@ -203,7 +203,7 @@ TaskStatus KHARMADriver::SyncAllBounds(std::shared_ptr<MeshData<Real>> &md)
 TaskID KHARMADriver::AddFluxCalculations(TaskID& t_start, TaskList& tl, MeshData<Real> *md)
 {
     // Pull reconstruction option to simplify use. TODO shorten?
-    auto pmb0  = md->GetBlockData(0)->GetBlockPointer();
+    auto *pmb0  = md->GetBlockData(0)->GetBlockPointer();
     auto& pkgs = pmb0->packages.AllPackages();
     const KReconstruction::Type& recon = pkgs.at("Flux")->Param<KReconstruction::Type>("recon");
 
@@ -293,7 +293,7 @@ TaskID KHARMADriver::AddFOFC(TaskID& t_start, TaskList& tl, MeshData<Real> *md,
 {
     Flag("FOFC");
     // Pull reconstruction option to simplify use. TODO shorten?
-    auto pmb0  = md->GetBlockData(0)->GetBlockPointer();
+    auto *pmb0  = md->GetBlockData(0)->GetBlockPointer();
     auto& pkgs = pmb0->packages.AllPackages();
 
     const Floors::Prescription fofc_floors       = pmb0->packages.Get("Flux")->Param<Floors::Prescription>("fofc_prescription");
@@ -373,7 +373,7 @@ TaskID KHARMADriver::AddStateUpdate(TaskID& t_start, TaskList& tl, MeshData<Real
 
     // We'll be running UtoP after this, which needs a guess in order to converge, so we copy in md_sub_step_init
     auto t_copy_prims = t_update;
-    auto pmb0  = md_full_step_init->GetBlockData(0)->GetBlockPointer();
+    auto *pmb0  = md_full_step_init->GetBlockData(0)->GetBlockPointer();
     auto& pkgs = pmb0->packages.AllPackages();
 
     // If we're explicitly evolving, UtoP needs a guess
@@ -426,7 +426,7 @@ TaskID KHARMADriver::AddStateUpdateIdealGuess(TaskID& t_start, TaskList& tl, Mes
 
     // We'll be running UtoP after this, which needs a guess in order to converge, so we copy in md_sub_step_init
     auto t_copy_prims = t_update;
-    auto pmb0  = md_full_step_init->GetBlockData(0)->GetBlockPointer();
+    auto *pmb0  = md_full_step_init->GetBlockData(0)->GetBlockPointer();
     auto& pkgs = pmb0->packages.AllPackages();
     if (pkgs.at("GRMHD")->Param<bool>("ideal_guess")) {
         t_copy_prims = tl.AddTask(t_start, Copy<MeshData<Real>>,

@@ -44,7 +44,7 @@
 
 void B_CT::ZeroBoundaryEMF(MeshBlockData<Real> *rc, IndexDomain domain, const VariablePack<Real> &emfpack, bool coarse)
 {
-    auto pmb = rc->GetBlockPointer();
+    auto *pmb = rc->GetBlockPointer();
     const BoundaryFace bface = KBoundaries::BoundaryFaceOf(domain);
     const std::string bname = KBoundaries::BoundaryName(bface);
     const int bdir = KBoundaries::BoundaryDirection(bface);
@@ -69,7 +69,7 @@ void B_CT::ZeroBoundaryEMF(MeshBlockData<Real> *rc, IndexDomain domain, const Va
 
 void B_CT::AverageBoundaryEMF(MeshBlockData<Real> *rc, IndexDomain domain, const VariablePack<Real> &emfpack, bool coarse)
 {
-    auto pmb = rc->GetBlockPointer();
+    auto *pmb = rc->GetBlockPointer();
     const BoundaryFace bface = KBoundaries::BoundaryFaceOf(domain);
     const std::string bname = KBoundaries::BoundaryName(bface);
     const int bdir = KBoundaries::BoundaryDirection(bface);
@@ -195,7 +195,7 @@ void B_CT::DestructiveBoundaryClean(MeshBlockData<Real> *rc, IndexDomain domain,
 {
     // Set XN faces to keep clean divergence at outflow XN boundary
     // Feels wrong to work backward from no divergence, but they are just outflow...
-    auto pmb = rc->GetBlockPointer();
+    auto *pmb = rc->GetBlockPointer();
     const BoundaryFace bface = KBoundaries::BoundaryFaceOf(domain);
     const std::string bname = KBoundaries::BoundaryName(bface);
     const int bdir = KBoundaries::BoundaryDirection(bface);
@@ -282,7 +282,7 @@ void B_CT::ReconnectBoundaryB3(MeshBlockData<Real> *rc, IndexDomain domain, cons
     if (coarse) return;
 
     // Pull boundary properties
-    auto pmb = rc->GetBlockPointer();
+    auto *pmb = rc->GetBlockPointer();
     const BoundaryFace bface = KBoundaries::BoundaryFaceOf(domain);
     const bool binner = KBoundaries::BoundaryIsInner(bface);
     const int bdir = KBoundaries::BoundaryDirection(bface);
@@ -341,7 +341,7 @@ void B_CT::ReconnectBoundaryB3(MeshBlockData<Real> *rc, IndexDomain domain, cons
 
                     // Recover primitive GRMHD variables from our modified U
                     Inverter::u_to_p<Inverter::Type::kastaun>(G, U, m_u, gam, k, jf, i, P, m_p, Loci::center,
-                                                              25, 1e-12, false);
+                                                              200, 1e-30, false);
                     // Floor them
                     // TODO THIS IS IN FLUID FRAME
                     int fflag = Floors::apply_geo_floors(G, P, m_p, gam, k, jf, i, floors, floors, Loci::center);

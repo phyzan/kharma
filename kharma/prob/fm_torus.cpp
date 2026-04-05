@@ -40,7 +40,7 @@
 
 TaskStatus InitializeFMTorus(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin)
 {
-    auto pmb        = rc->GetBlockPointer();
+    auto *pmb        = rc->GetBlockPointer();
     GridScalar rho  = rc->Get("prims.rho").data;
     GridScalar u    = rc->Get("prims.u").data;
     GridVector uvec = rc->Get("prims.uvec").data;

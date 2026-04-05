@@ -74,6 +74,39 @@
 
 namespace Inverter {
 
+
+template<typename T, typename Callable>
+KOKKOS_FUNCTION
+T bisect(Callable&& f, const T& a, const T& b, const T& atol){
+    // does not care for number of iterations, just keeps running until atol is met or
+    // machine precision is reached. Returns the best guess so far if machine precision is reached.
+    T err = 2*atol+1;
+    T _a = a;
+    T _b = b;
+    T c = a;
+    T fm;
+
+    assert((f(a) * f(b) <= 0) && "Root not bracketed" );
+    
+    while (err > atol){
+        c = (_a+_b)/2;
+        if (c == _a || c == _b){
+            // reached machine precision limit, return the best guess so far
+            break;
+        }
+        fm = f(c);
+        if (f(_a) * fm  > 0){
+            _a = c;
+        }
+        else{
+            _b = c;
+        }
+        err = std::abs(fm);
+    }
+
+    return _b;
+}
+
 /**
  * Residual class from Phoebus.
  * Caches function arguments which won't change during solve
@@ -81,81 +114,197 @@ namespace Inverter {
 class KastaunResidual {
     public:
         KOKKOS_FUNCTION
-        KastaunResidual(const Real &D, const Real &q, const Real &bsq, const Real &bsq_rpsq,
-                const Real &rsq, const Real &rbsq, const Real &v0sq, const Real &gam)
-            : D_(D), q_(q), bsq_(bsq), bsq_rpsq_(bsq_rpsq),
-            rsq_(rsq), rbsq_(rbsq), v0sq_(v0sq), gam_(gam) {}
+        KastaunResidual(Real tau, Real d, Real s_sq, Real sb_sq, Real B_sq, Real Gam, Real h0 = 1) : D(d), h0(h0), Gam(Gam) {
+            q       = tau / D;
+            b_sq    = B_sq / D;
+            r_sq    = s_sq / (D * D);
+            rb_sq   = sb_sq / (D * D * D);
+            z0_sq   = r_sq / (h0 * h0);
+            v0_sq   = z0_sq / (1 + z0_sq);
+        }
 
         KOKKOS_FORCEINLINE_FUNCTION
         Real x_mu(const Real mu)
         {
-            return 1.0 / (1.0 + mu * bsq_);
+            return 1 / (1 + mu * b_sq);
         }
         KOKKOS_FORCEINLINE_FUNCTION
-        Real rbarsq_mu(const Real mu, const Real x) {
-            return x * (x * rsq_ + mu * (1.0 + x) * rbsq_);
+        Real rbar_sq(const Real mu) {
+            const Real x = x_mu(mu);
+            return x * (x * r_sq + mu * (1.0 + x) * rb_sq);
         }
         KOKKOS_FORCEINLINE_FUNCTION
-        Real qbar_mu(const Real mu, const Real x) {
+        Real qbar_mu(const Real mu) {
+            const Real x = x_mu(mu);
             const Real mux = mu * x;
-            return q_ - 0.5 * (bsq_ + mux * mux * bsq_rpsq_);
+            return q - 0.5 * (b_sq + mux * mux * (b_sq * r_sq - rb_sq));
         }
         KOKKOS_FORCEINLINE_FUNCTION
-        Real vhatsq_mu(const Real mu, const Real rbarsq) {
-            return std::min(mu * mu * rbarsq, v0sq_);
+        Real vsq_hat(const Real mu) {
+            Real mu_sq_rbarsq = mu * mu * rbar_sq(mu);
+            if (mu_sq_rbarsq < v0_sq){
+                return mu_sq_rbarsq;
+            } else {
+                return v0_sq;
+            }
         }
         KOKKOS_FORCEINLINE_FUNCTION
-        Real iWhat_mu(const Real vhatsq)
+        Real W_sq(const Real mu)
         {
-            return std::sqrt(1.0 - vhatsq);
+            Real vsq_val = mu * mu * rbar_sq(mu);
+            if (vsq_val < v0_sq) {
+                return 1.0 / (1.0 - vsq_val);
+            } else {
+                return 1 + z0_sq;
+            }
         }
+
         KOKKOS_FORCEINLINE_FUNCTION
-        Real rhohat_mu(const Real iWhat) {
-            return D_ * iWhat;
-        }
-        KOKKOS_FORCEINLINE_FUNCTION
-        Real ehat_mu(const Real mu, const Real qbar, const Real rbarsq, const Real vhatsq,
-                    const Real What)
+        Real iW_sq(const Real mu)
         {
-            return What * (qbar - mu * rbarsq) + vhatsq * What * What / (1.0 + What);
+            Real vsq_val = mu * mu * rbar_sq(mu);
+            if (vsq_val < v0_sq) {
+                return 1.0 - vsq_val;
+            } else {
+                return 1.0 / (1.0 + z0_sq);
+            }
+        }
+
+
+        KOKKOS_FORCEINLINE_FUNCTION
+        Real W(const Real mu)
+        {
+            return std::sqrt(W_sq(mu));
+        }
+
+        KOKKOS_FORCEINLINE_FUNCTION
+        Real rho_hat(const Real mu) {
+            return D * std::sqrt(iW_sq(mu));
+        }
+        KOKKOS_FORCEINLINE_FUNCTION
+        Real ehat_mu(const Real mu)
+        {
+            const Real W_val = W(mu);
+            const Real q_bar_val = qbar_mu(mu);
+            const Real rr_bar_val = rbar_sq(mu);
+            const Real wminus1 = W_val - 1.0;
+            Real kinetic;
+            if (wminus1 < 1e-3) {
+                const Real v2_hat_val = vsq_hat(mu);
+                kinetic = v2_hat_val * W_val * W_val / (1.0 + W_val);
+            } else {
+                kinetic = wminus1;
+            }
+            return W_val * (q_bar_val - mu * rr_bar_val) + kinetic;
+        }
+
+        KOKKOS_FORCEINLINE_FUNCTION
+        Real ahat_mod(const Real mu)
+        {
+            const Real Phat_val = Phat(mu);
+            const Real rhohat_val = rho_hat(mu);
+            const Real eps_val = this->ehat_mu(mu);
+            return Phat_val / rhohat_val;
+        }
+
+        KOKKOS_FORCEINLINE_FUNCTION
+        Real Phat(const Real mu)
+        {
+            const Real rhohat_val = this->rho_hat(mu);
+            const Real ehat_val = ehat_mu(mu);
+            return ehat_val * rhohat_val * (Gam - 1.0);
         }
 
         // Evaluate residual at a value of mu.
         // Kastaun eqn 44
         KOKKOS_INLINE_FUNCTION
-        Real operator()(const Real mu) {
+        Real obj_fun(const Real mu) {
             const Real x = x_mu(mu);
-            const Real rbarsq = rbarsq_mu(mu, x);
-            const Real qbar = qbar_mu(mu, x);
-            const Real vhatsq = vhatsq_mu(mu, rbarsq);
-            const Real iWhat = iWhat_mu(vhatsq);
-            const Real What = 1.0 / iWhat;
-            const Real rhohat = std::max(rhohat_mu(iWhat), 0.);
-            const Real ehat = std::max(ehat_mu(mu, qbar, rbarsq, vhatsq, What), 0.);
+            const Real rbarsq = rbar_sq(mu);
+            const Real qbar = qbar_mu(mu);
+            const Real vhatsq = vsq_hat(mu);
+            const Real What = W(mu);
+            const Real iWhat = 1.0 / What;
+            const Real rhohat = std::max(rho_hat(mu), 0.);
+            const Real ehat = std::max(ehat_mu(mu), 0.);
             // TODO this is ideal-only
-            const Real Phat = ehat * rhohat * (gam_ - 1.0);
-            const Real ahat = Phat / (rhohat * (1.0 + ehat));
+            const Real Phat = ehat * rhohat * (Gam - 1.0);
+            const Real ahat_mod = Phat / rhohat;
 
-            const Real nua = (1.0 + ahat) * (1.0 + ehat) * iWhat;
-            const Real nub = (1.0 + ahat) * (1.0 + qbar - mu * rbarsq);
+            const Real nua = (1.0 + ehat + ahat_mod) * iWhat;
+            const Real nub = (1.0 + ahat_mod / (1 + ehat)) * (1.0 + qbar - mu * rbarsq);
             const Real nuhat = std::max(nua, nub);
 
-            const Real muhat = 1.0 / (nuhat + mu * rbarsq);
-            return mu - muhat;
+            return mu * (nuhat + mu * rbarsq) - 1;
         }
 
         // Residual for finding bracket values
         // Kastaun eqn 49
         KOKKOS_FORCEINLINE_FUNCTION
-        Real aux_func(const Real mu) {
-            const Real x = 1.0 / (1.0 + mu * bsq_);
-            const Real rbarsq = x * (rsq_ * x + mu * (1.0 + x) * rbsq_);
-            return mu * std::sqrt(1.0 + rbarsq) - 1.0;
+        Real bound_obj_fun(const Real mu) {
+            Real rbar_val = rbar_sq(mu);
+            return mu * mu * (h0*h0 + rbar_val) - 1;
         }
 
-    private:
-        const Real D_, q_, bsq_, bsq_rpsq_, rsq_, rbsq_, v0sq_, gam_;
+    // private:
+    Real D, h0, Gam; //provided
+    Real r_sq, rb_sq, b_sq, q, z0_sq, v0_sq; //derived / normalized
 };
+
+
+KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_out, const Real tau, const Real D, const Real s_sq, const Real sb_sq, const Real B_sq, const Real Gam, const Real tol) {
+    const Real h0 = 1.;
+    KastaunResidual res(tau, D, s_sq, sb_sq, B_sq, Gam, h0);
+    // Find upper bound for mu using eqn 49
+    Real mu_min = 0;
+    Real mu_max;
+
+    const char* err_msg = nullptr;
+    if (res.r_sq < h0 * h0) {
+        mu_max = 1.0 / h0;
+    } else {
+        if (res.bound_obj_fun(mu_min) * res.bound_obj_fun(1.0/h0) > 0.) {
+            err_msg = "Root not bracketed for bound_obj_fun in get_prims. Check inputs.";
+        }
+
+        // Find mu_max at machine precision accuracy, ignore tol.
+        // Alternatively, the iteration could stop before finding a valid bracket for obj_fun, which is more important to solve correctly, but might
+        // be more expensive as it requires that the objective function is evaluated at each iteration.
+        mu_max = bisect([&res](const Real mu){
+            return res.bound_obj_fun(mu);
+        }, mu_min, 1.0/h0, 0.0);
+    }
+
+
+    if (!err_msg && res.obj_fun(mu_min) >= 0){
+        err_msg = "mu_min is an invalid lower bound for obj_fun in get_prims. Check inputs.";
+    } else if (!err_msg && res.obj_fun(mu_min) * res.obj_fun(mu_max) > 0.) {
+        err_msg = "Root not bracketed for obj_fun in get_prims. Check inputs.";
+    }
+
+    // ====== DEBUG printing =======
+    if (err_msg != nullptr) {
+        // print tau, d, r_sq, rb_sq, b_sq, Gam
+        printf("Error in get_prims: %s\n", err_msg);
+        printf("tau: %e\n", tau);
+        printf("D: %e\n", D);
+        printf("r_sq: %e\n", res.r_sq);
+        printf("rb_sq: %e\n", res.rb_sq);
+        printf("b_sq: %e\n", res.b_sq);
+        printf("Gam: %e\n", Gam);
+        // Kokkos::abort(err_msg);
+    }
+    // ====== END DEBUG printing =======
+
+    Real mu_sol = bisect([&res](const Real mu){
+        return res.obj_fun(mu);
+    }, mu_min, mu_max, tol);
+
+    mu_out = mu_sol;
+    P = res.Phat(mu_sol);
+    rho = res.rho_hat(mu_sol);
+    lfac = res.W(mu_sol);
+}
 
 /**
  * Robust inversion scheme from Kastaun et al. 2020
@@ -246,110 +395,32 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
         rbsq = bdotr * bdotr;
         bsq_rpsq = bsq * rsq - rbsq;
     }
-    //const Real zsq = rsq / h0sq_; // h0sq_ normalization set to 1 in Phoebus
-    const Real zsq = rsq;
-    const Real v0sq = std::min(zsq / (1.0 + zsq), 1.0 - 1.0 / SQR(51.));
+    // Compute non-normalized quantities for get_prims
+    const Real tau = -dot(Qcov, ncon) - D;  // tau/D = q
+    const Real s_sq = rsq * D * D;
+    const Real sb_sq = rbsq * D * D * D;
+    const Real B_sq = bsq * D;
 
-    // residual object. Caches most arguments/floors so calls are single-argument
-    KastaunResidual res(D, q, bsq, bsq_rpsq, rsq, rbsq, v0sq, gam);
+    // Solve using get_prims
+    Real P_prim, rho_prim, W, mu;
+    get_prims(P_prim, rho_prim, W, mu, tau, D, s_sq, sb_sq, B_sq, gam, tol);
 
-    // SOLVE
-    // TODO(BSP) better or faster solver?  (Optionally) skip bracketing?
-    // Need to find initial bracket. Requires separate solve
-    Real zm = 0.;
-    Real zp = 1.; // This is the lowest specific enthalpy admitted by the EOS
-
-    // Evaluate master function (eq 49) at bracket values
-    Real fm = res.aux_func(zm);
-    Real fp = res.aux_func(zp);
-
-    // For simplicity on the GPU, find roots using the false position method
-    int iterations = max_iterations;
-    // If bracket within tolerances, don't bother doing any iterations
-    if ((m::abs(zm-zp) < tol) || ((m::abs(fm) + m::abs(fp)) < 2.0*tol)) {
-        iterations = -1;
-    }
-    Real z = 0.5*(zm + zp);
-
-    int iter;
-    for (iter = 0; iter < iterations; ++iter) {
-        z =  (zm*fp - zp*fm)/(fp-fm);  // linear interpolation to point f(z)=0
-        Real f = res.aux_func(z);
-        // Quit if convergence reached
-        // NOTE(@ermost): both z and f are of order unity
-        if ((m::abs(zm-zp) < tol) || (m::abs(f) < tol)) {
-            break;
-        }
-        // assign zm-->zp if root bracketed by [z,zp]
-        if (f*fp < 0.0) {
-            zm = zp;
-            fm = fp;
-            zp = z;
-            fp = f;
-        } else {  // assign zp-->z if root bracketed by [zm,z]
-            fm = 0.5*fm; // 1/2 comes from "Illinois algorithm" to accelerate convergence
-            zp = z;
-            fp = f;
-        }
-    }
-
-    // Found brackets. Now find solution in bounded interval, again using the
-    // false position method
-    zm = 0.;
-    zp = z;
-
-    // Evaluate master function (eq 44) at bracket values
-    fm = res(zm);
-    fp = res(zp);
-
-    iterations = max_iterations;
-    if ((m::abs(zm-zp) < tol) || ((m::abs(fm) + m::abs(fp)) < 2.0*tol)) {
-        iterations = -1;
-    }
-    z = 0.5*(zm + zp);
-
-    for (iter = 0; iter < iterations; ++iter) {
-        z = (zm*fp - zp*fm)/(fp-fm);  // linear interpolation to point f(z)=0
-        Real f = res(z);
-        // Quit if convergence reached
-        // NOTE: both z and f are of order unity
-        if ((m::abs(zm-zp) < tol) || (m::abs(f) < tol)) {
-            break;
-        }
-        // assign zm-->zp if root bracketed by [z,zp]
-        if (f*fp < 0.0) {
-            zm = zp;
-            fm = fp;
-            zp = z;
-            fp = f;
-        } else {  // assign zp-->z if root bracketed by [zm,z]
-            fm = 0.5*fm; // 1/2 comes from "Illinois algorithm" to accelerate convergence
-            zp = z;
-            fp = f;
-        }
-    }
-    // TODO keep track iterations actually used
-
-    // Just unwrap everything into primitive vars as-is
-    const Real mu = z;
-    const Real x = res.x_mu(mu);
-    const Real rbarsq = res.rbarsq_mu(mu, x);
-    const Real vsq = res.vhatsq_mu(mu, rbarsq);
-    const Real iW = res.iWhat_mu(vsq);
-    const Real W = 1.0 / iW;
-    const Real qbar = res.qbar_mu(mu, x);
+    // Set primitive variables
     // These values should be as *raw* as possible, whether or not they respect the floors
     // (or even physics).  We will add material and try again if they're bad
-    P(m_p.RHO, k, j, i) = std::max(res.rhohat_mu(iW), 0.);
-    P(m_p.UU, k, j, i) = std::max(res.ehat_mu(mu, qbar, rbarsq, vsq, W) * P(m_p.RHO, k, j, i), 0.);
+    P(m_p.RHO, k, j, i) = std::max(rho_prim, 0.);
+    P(m_p.UU, k, j, i) = std::max(P_prim / (gam - 1.0), 0.);  // u = P / (gam - 1) for ideal gas
+
+    // Set velocities
     // TODO make sure W*mu*x really should be >0
     // Latter part is a vector/signed quantity, don't set a minimum at 0
+    const Real x = 1.0 / (1.0 + mu * bsq);
     SPACELOOP(ii) P(m_p.U1 + ii, k, j, i) = std::max(W * mu * x, 0.) * (rcon[ii] + mu * bdotr * bu[ii]);
 
-    // If we should try to recover velocity, do it in this function to re-use the residual object
+    // If we should try to recover velocity, do it in this function
     if (!recover_velocity) {
-        // Mark for fix only if convergence is not established within max_iterations (should be *extremely* rare)
-        return (iter < max_iterations) ? static_cast<int>(Status::success) : static_cast<int>(Status::max_iter);
+        // bisect always converges, so just return success
+        return static_cast<int>(Status::success);
     } else {
         // Calculate P->U on the inverted values
         const Real rho = P(m_p.RHO, k, j, i);
@@ -369,29 +440,26 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
             // This prioritizes the new thermal energy in the total T^0_0,
             // but dumps any extra back into the velocities to be less disruptive.
             // TODO either set this on better theory or redo the algebra and condense it
+
+            // Create residual object for velocity recovery
+            KastaunResidual res(tau, D, s_sq, sb_sq, B_sq, gam);
+
             const Real e_actual = P(m_p.UU, k, j, i) / P(m_p.RHO, k, j, i);
-            auto f = [&] (Real mu) {
-                Real x = res.x_mu(mu);
-                Real rbarsq = res.rbarsq_mu(mu, x);
-                Real vsq = res.vhatsq_mu(mu, rbarsq);
-                Real W = 1. / res.iWhat_mu(vsq);
-                Real qbar = res.qbar_mu(mu, x);
-                return (W * (qbar - mu * rbarsq) + vsq * W * W /
-                            (1.0 + W))
-                        - e_actual;
+            auto f = [&res, e_actual] (Real mu_val) {
+                return res.ehat_mu(mu_val) - e_actual;
             };
 
             // Rootfind for mu that would have produced the current e
             bool e_solve_failed = false;
-            Real mu = z, mum = 0., mup = 1.;
+            Real mu_new = mu, mum = 0., mup = 1.;
             if (f(mum) * f(mup) > 0.) {
                 e_solve_failed = true;
             } else {
-                while (1) {
+                while (true) {
                     Real muc = (mum + mup) / 2.;
                     Real resv = m::abs(f(muc));
                     if (resv < 1e-8 || m::abs((mup - mum) / 2) < 1e-10) {
-                        mu = muc;
+                        mu_new = muc;
                         e_solve_failed = (resv > 1e-8);
                         break;
                     }
@@ -404,12 +472,9 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
             }
 
             // Reset only velocities with new mu
-            const Real x = res.x_mu(mu);
-            const Real rbarsq = res.rbarsq_mu(mu, x);
-            const Real vsq = res.vhatsq_mu(mu, rbarsq);
-            const Real iW = res.iWhat_mu(vsq);
-            const Real W = 1.0 / iW;
-            SPACELOOP(ii) P(m_p.U1 + ii, k, j, i) = std::max(W * mu * x, 0.) * (rcon[ii] + mu * bdotr * bu[ii]);
+            const Real x_new = 1.0 / (1.0 + mu_new * bsq);
+            const Real W_new = res.W(mu_new);
+            SPACELOOP(ii) P(m_p.U1 + ii, k, j, i) = std::max(W_new * mu_new * x_new, 0.) * (rcon[ii] + mu_new * bdotr * bu[ii]);
             return (e_solve_failed) ? static_cast<int>(Status::bad_velocity) : static_cast<int>(Status::floor);
         } else {
             return static_cast<int>(Status::success);
@@ -417,4 +482,4 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
     }
 }
 
-}
+} // namespace Inverter

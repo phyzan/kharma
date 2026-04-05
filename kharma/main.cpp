@@ -145,15 +145,15 @@ int main(int argc, char *argv[])
         pman.ParthenonFinalize();
         return 1;
     }
-    auto pin = pman.pinput.get(); // All parameters in the input file or command line
+    auto *pin = pman.pinput.get(); // All parameters in the input file or command line
     // Modify input parameters as we need. Needs to know if Parthenon set parameters
     // from our restart file, or whether we need to read them from a file here
     KHARMA::FixParameters(pin, pman.IsRestart());
     // InitPackagesEtc calls ProcessPackages, then constructs the Mesh
     pman.ParthenonInitPackagesAndMesh();
     // Now pull out the mesh and app_input as well for below
-    auto pmesh = pman.pmesh.get(); // The mesh, with list of blocks & locations, size, etc
-    auto papp = pman.app_input.get(); // The list of callback functions specified above
+    auto *pmesh = pman.pmesh.get(); // The mesh, with list of blocks & locations, size, etc
+    auto *papp = pman.app_input.get(); // The list of callback functions specified above
     EndFlag();
 
 #if DEBUG
@@ -225,7 +225,7 @@ int main(int argc, char *argv[])
         }
 
         // Pull out things we need to give the driver
-        auto pin = pman.pinput.get(); // All parameters in the input file or command line
+        auto *pin = pman.pinput.get(); // All parameters in the input file or command line
 
         // We now have just one driver package, with different TaskLists for different modes
         //MPIBarrier();

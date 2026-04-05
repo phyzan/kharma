@@ -153,7 +153,7 @@ std::shared_ptr<KHARMAPackage> Inverter::Initialize(ParameterInput *pin, std::sh
 template<Inverter::Type inverter>
 inline void BlockPerformInversion(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
 {
-    auto pmb = rc->GetBlockPointer();
+    auto *pmb = rc->GetBlockPointer();
 
     PackIndexMap prims_map, cons_map;
     auto U = GRMHD::PackMHDCons(rc, cons_map);
@@ -360,7 +360,7 @@ inline void BlockPerformInversion(MeshBlockData<Real> *rc, IndexDomain domain, b
 void Inverter::BlockUtoP(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
 {
     // This only chooses an implementation.  See BlockPerformInversion and implementations e.g. onedw.hpp
-    auto& type = rc->GetBlockPointer()->packages.Get("Inverter")->Param<Type>("inverter_type");
+    const auto& type = rc->GetBlockPointer()->packages.Get("Inverter")->Param<Type>("inverter_type");
     switch(type) {
     case Type::onedw:
         BlockPerformInversion<Type::onedw>(rc, domain, coarse);
@@ -377,8 +377,8 @@ void Inverter::BlockUtoP(MeshBlockData<Real> *rc, IndexDomain domain, bool coars
 
 TaskStatus Inverter::PostStepDiagnostics(const SimTime& tm, MeshData<Real> *md)
 {
-    auto pmesh = md->GetMeshPointer();
-    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
+    auto *pmesh = md->GetMeshPointer();
+    auto *pmb0 = md->GetBlockData(0)->GetBlockPointer();
     // Options
     const auto& pars = pmesh->packages.Get("Globals")->AllParams();
     const int flag_verbose = pars.Get<int>("flag_verbose");

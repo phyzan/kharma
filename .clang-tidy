@@ -35,7 +35,8 @@ Checks: >
   -modernize-avoid-c-arrays,
   -misc-use-internal-linkage,
   -misc-confusable-identifiers,
-  -readability-simplify-boolean-expr
+  -readability-simplify-boolean-expr,
+  -readability-make-member-function-const
 
 HeaderFilterRegex: 'kharma/.*'
 
