@@ -286,8 +286,9 @@ KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_o
         }, mu_min, mu_max, tol);
     }
 
-    P = std::max(res.Phat(mu_out), 0.);
-    rho = std::max(res.rho_hat(mu_out), 0.);
+    // Return raw (unclamped) values so the caller can detect unphysical states
+    P = res.Phat(mu_out);
+    rho = res.rho_hat(mu_out);
     lfac = res.W(mu_out);
 }
 
@@ -390,6 +391,13 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
     Real P_prim, rho_prim, W, mu;
     get_prims(P_prim, rho_prim, W, mu, tau, D, s_sq, sb_sq, B_sq, gam, tol);
 
+    // Detect unphysical solutions: if the raw Phat < 0 (ehat < 0),
+    // the conserved variables don't correspond to a valid physical state.
+    // Clamp primitives but flag for fixup so the neighbor-averaging
+    // system can correct these cells (matching old behavior where the
+    // Illinois method would return max_iter for these cases).
+    const bool unphysical = (P_prim < 0.) || (rho_prim <= 0.);
+
     // Set primitive variables
     // These values should be as *raw* as possible, whether or not they respect the floors
     // (or even physics).  We will add material and try again if they're bad
@@ -404,8 +412,9 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
 
     // If we should try to recover velocity, do it in this function
     if (!recover_velocity) {
-        // bisect always converges, so just return success
-        return static_cast<int>(Status::success);
+        // Flag unphysical solutions so FixUtoP can neighbor-average them
+        return unphysical ? static_cast<int>(Status::neg_u)
+                          : static_cast<int>(Status::success);
     } else {
         // Calculate P->U on the inverted values
         const Real rho = P(m_p.RHO, k, j, i);
