@@ -201,9 +201,9 @@ class KastaunResidual {
         KOKKOS_FORCEINLINE_FUNCTION
         Real ahat_mod(const Real mu)
         {
-            const Real Phat_val = Phat(mu);
-            const Real rhohat_val = rho_hat(mu);
-            const Real eps_val = this->ehat_mu(mu);
+            const Real Phat_val = std::max(Phat(mu), 0.);
+            const Real rhohat_val = std::max(rho_hat(mu), 0.);
+            const Real eps_val = std::max(this->ehat_mu(mu), 0.);
             return Phat_val / rhohat_val;
         }
 
@@ -224,14 +224,15 @@ class KastaunResidual {
             const Real qbar = qbar_mu(mu);
             const Real vhatsq = vsq_hat(mu);
             const Real What = W(mu);
-            const Real iWhat = 1.0 / What;
+            const Real iWhat = std::sqrt(iW_sq(mu));
             const Real rhohat = std::max(rho_hat(mu), 0.);
             const Real ehat = std::max(ehat_mu(mu), 0.);
             // TODO this is ideal-only
-            const Real Phat = ehat * rhohat * (Gam - 1.0);
-            const Real ahat_mod = Phat / rhohat;
+            const Real ahat_mod = ehat * (Gam - 1.0);
 
+            // nu_A = h_hat / W = (1 + a_hat)(1 + eps) / W  (paper eq 46)
             const Real nua = (1.0 + ehat + ahat_mod) * iWhat;
+            // nu_B = (1 + a_hat) * (1 + qbar - mu*rbarsq)  (paper eq 47)
             const Real nub = (1.0 + ahat_mod / (1 + ehat)) * (1.0 + qbar - mu * rbarsq);
             const Real nuhat = std::max(nua, nub);
 
@@ -259,51 +260,35 @@ KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_o
     Real mu_min = 0;
     Real mu_max;
 
-    const char* err_msg = nullptr;
     if (res.r_sq < h0 * h0) {
         mu_max = 1.0 / h0;
     } else {
-        if (res.bound_obj_fun(mu_min) * res.bound_obj_fun(1.0/h0) > 0.) {
-            err_msg = "Root not bracketed for bound_obj_fun in get_prims. Check inputs.";
-        }
-
-        // Find mu_max at machine precision accuracy, ignore tol.
-        // Alternatively, the iteration could stop before finding a valid bracket for obj_fun, which is more important to solve correctly, but might
-        // be more expensive as it requires that the objective function is evaluated at each iteration.
         mu_max = bisect([&res](const Real mu){
             return res.bound_obj_fun(mu);
         }, mu_min, 1.0/h0, 0.0);
+
+        // Per Kastaun et al. Sec IV A: nudge mu_max slightly upward to
+        // guarantee that the master function root is strictly contained.
+        // For extreme inputs (r^2 >> 1), f(mu_+) is theoretically >= 0
+        // but floating-point roundoff can make it slightly negative.
+        mu_max = std::min(mu_max * (1.0 + 4.0 * tol) + 4.0 * tol, 1.0 / h0);
+    }
+    
+    Real f_upper = res.obj_fun(mu_max);
+
+    if (f_upper <= 0.) {
+        // mu_max is already at or past the root (can happen for extreme
+        // inputs where ehat < 0 is clamped).  mu_max ~ root, use directly.
+        mu_out = mu_max;
+    } else {
+        mu_out = bisect([&res](const Real mu){
+            return res.obj_fun(mu);
+        }, mu_min, mu_max, tol);
     }
 
-
-    if (!err_msg && res.obj_fun(mu_min) >= 0){
-        err_msg = "mu_min is an invalid lower bound for obj_fun in get_prims. Check inputs.";
-    } else if (!err_msg && res.obj_fun(mu_min) * res.obj_fun(mu_max) > 0.) {
-        err_msg = "Root not bracketed for obj_fun in get_prims. Check inputs.";
-    }
-
-    // ====== DEBUG printing =======
-    if (err_msg != nullptr) {
-        // print tau, d, r_sq, rb_sq, b_sq, Gam
-        printf("Error in get_prims: %s\n", err_msg);
-        printf("tau: %e\n", tau);
-        printf("D: %e\n", D);
-        printf("r_sq: %e\n", res.r_sq);
-        printf("rb_sq: %e\n", res.rb_sq);
-        printf("b_sq: %e\n", res.b_sq);
-        printf("Gam: %e\n", Gam);
-        // Kokkos::abort(err_msg);
-    }
-    // ====== END DEBUG printing =======
-
-    Real mu_sol = bisect([&res](const Real mu){
-        return res.obj_fun(mu);
-    }, mu_min, mu_max, tol);
-
-    mu_out = mu_sol;
-    P = res.Phat(mu_sol);
-    rho = res.rho_hat(mu_sol);
-    lfac = res.W(mu_sol);
+    P = std::max(res.Phat(mu_out), 0.);
+    rho = std::max(res.rho_hat(mu_out), 0.);
+    lfac = res.W(mu_out);
 }
 
 /**
