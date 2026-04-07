@@ -112,14 +112,19 @@ T bisect(Callable&& f, const T& a, const T& b, const T& atol){
  * Caches function arguments which won't change during solve
  */
 class KastaunResidual {
+
+    static constexpr Real W_max = 1000.;
+
     public:
         KOKKOS_FUNCTION
-        KastaunResidual(Real tau, Real d, Real s_sq, Real sb_sq, Real B_sq, Real Gam, Real h0 = 1) : D(d), h0(h0), Gam(Gam) {
-            q       = tau / D;
-            b_sq    = B_sq / D;
-            r_sq    = s_sq / (D * D);
-            rb_sq   = sb_sq / (D * D * D);
-            z0_sq   = r_sq / (h0 * h0);
+        KastaunResidual(Real q, Real d, Real r_sq, Real rb_sq, Real b_sq, Real Gam, Real h0 = 1) : D(d), h0(h0), Gam(Gam), r_sq(r_sq), rb_sq(rb_sq), b_sq(b_sq), q(q) {
+            // Cap z0_sq to limit the maximum Lorentz factor (W_max ~ W_max).
+            // Without this cap, extreme r_sq (magnetically dominated regions) leads
+            // to W >> 1, causing catastrophic cancellation in ehat_mu and garbage
+            // primitives that pass the P > 0 / rho > 0 checks without triggering fixup.
+            // The cap must be on z0_sq (not v0_sq) so that W_sq/iW_sq, which use
+            // 1 + z0_sq as the capped W^2, remain consistent.
+            z0_sq   = std::min(r_sq / (h0 * h0), W_max * W_max - 1.0);
             v0_sq   = z0_sq / (1 + z0_sq);
         }
 
@@ -253,9 +258,9 @@ class KastaunResidual {
 };
 
 
-KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_out, const Real tau, const Real D, const Real s_sq, const Real sb_sq, const Real B_sq, const Real Gam, const Real tol) {
+KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_out, const Real q, const Real D, const Real r_sq, const Real rb_sq, const Real b_sq, const Real Gam, const Real tol) {
     const Real h0 = 1.;
-    KastaunResidual res(tau, D, s_sq, sb_sq, B_sq, Gam, h0);
+    KastaunResidual res(q, D, r_sq, rb_sq, b_sq, Gam, h0);
     // Find upper bound for mu using eqn 49
     Real mu_min = 0;
     Real mu_max;
@@ -332,7 +337,7 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
     const Real ncov[GR_DIM] = {(Real) -alpha, 0., 0., 0.};
     Real ncon[GR_DIM];
     G.raise(ncov, ncon, k, j, i, loc);
-    const Real q = (-dot(Qcov, ncon) - D) / D; // TODO floor on this?
+    const Real q = -dot(Qcov, ncon)/D - 1; // TODO floor on this?
 
     // r_i
     Real rcov[3] = {U(m_u.U1, k, j, i) / Urho,
@@ -363,7 +368,6 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
     SPACELOOP(ii) rsq += rcon[ii]*rcov[ii];
 
     Real bsq = 0.0;
-    Real bsq_rpsq = 0.0;
     Real rbsq = 0.0;
     Real bdotr = 0.0;
     Real bu[] = {0.0, 0.0, 0.0};
@@ -379,17 +383,12 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
         bsq = std::max(0.0, bsq);
 
         rbsq = bdotr * bdotr;
-        bsq_rpsq = bsq * rsq - rbsq;
     }
     // Compute non-normalized quantities for get_prims
-    const Real tau = -dot(Qcov, ncon) - D;  // tau/D = q
-    const Real s_sq = rsq * D * D;
-    const Real sb_sq = rbsq * D * D * D;
-    const Real B_sq = bsq * D;
-
+    
     // Solve using get_prims
     Real P_prim, rho_prim, W, mu;
-    get_prims(P_prim, rho_prim, W, mu, tau, D, s_sq, sb_sq, B_sq, gam, tol);
+    get_prims(P_prim, rho_prim, W, mu, q, D, rsq, rbsq, bsq, gam, tol);
 
     // Detect unphysical solutions: if the raw Phat < 0 (ehat < 0),
     // the conserved variables don't correspond to a valid physical state.
@@ -436,7 +435,7 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
             // TODO either set this on better theory or redo the algebra and condense it
 
             // Create residual object for velocity recovery
-            KastaunResidual res(tau, D, s_sq, sb_sq, B_sq, gam);
+            KastaunResidual res(q, D, rsq, rbsq, bsq, gam);
 
             const Real e_actual = P(m_p.UU, k, j, i) / P(m_p.RHO, k, j, i);
             auto f = [&res, e_actual] (Real mu_val) {
