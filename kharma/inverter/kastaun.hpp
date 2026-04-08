@@ -113,7 +113,7 @@ T bisect(Callable&& f, const T& a, const T& b, const T& atol){
  */
 class KastaunResidual {
 
-    static constexpr Real W_max = 1000.;
+    static constexpr Real W_max = 10000.;
 
     public:
         KOKKOS_FUNCTION
@@ -193,23 +193,8 @@ class KastaunResidual {
             const Real q_bar_val = qbar_mu(mu);
             const Real rr_bar_val = rbar_sq(mu);
             const Real wminus1 = W_val - 1.0;
-            Real kinetic;
-            if (wminus1 < 1e-3) {
-                const Real v2_hat_val = vsq_hat(mu);
-                kinetic = v2_hat_val * W_val * W_val / (1.0 + W_val);
-            } else {
-                kinetic = wminus1;
-            }
+            Real kinetic = vsq_hat(mu) * this->W_sq(mu) / (1.0 + W_val);
             return W_val * (q_bar_val - mu * rr_bar_val) + kinetic;
-        }
-
-        KOKKOS_FORCEINLINE_FUNCTION
-        Real ahat_mod(const Real mu)
-        {
-            const Real Phat_val = std::max(Phat(mu), 0.);
-            const Real rhohat_val = std::max(rho_hat(mu), 0.);
-            const Real eps_val = std::max(this->ehat_mu(mu), 0.);
-            return Phat_val / rhohat_val;
         }
 
         KOKKOS_FORCEINLINE_FUNCTION
@@ -217,31 +202,28 @@ class KastaunResidual {
         {
             const Real rhohat_val = this->rho_hat(mu);
             const Real ehat_val = ehat_mu(mu);
-            return ehat_val * rhohat_val * (Gam - 1.0);
+            // return ehat_val * rhohat_val * (Gam - 1.0);
+            return D * ( (qbar_mu(mu) - mu * rbar_sq(mu)) + 1 - std::sqrt(iW_sq(mu)) );
         }
 
         // Evaluate residual at a value of mu.
         // Kastaun eqn 44
         KOKKOS_INLINE_FUNCTION
         Real obj_fun(const Real mu) {
-            const Real x = x_mu(mu);
             const Real rbarsq = rbar_sq(mu);
             const Real qbar = qbar_mu(mu);
-            const Real vhatsq = vsq_hat(mu);
-            const Real What = W(mu);
             const Real iWhat = std::sqrt(iW_sq(mu));
-            const Real rhohat = std::max(rho_hat(mu), 0.);
             const Real ehat = std::max(ehat_mu(mu), 0.);
             // TODO this is ideal-only
             const Real ahat_mod = ehat * (Gam - 1.0);
 
             // nu_A = h_hat / W = (1 + a_hat)(1 + eps) / W  (paper eq 46)
-            const Real nua = (1.0 + ehat + ahat_mod) * iWhat;
+            const Real nua = (1 + ehat) * (1.0 + ehat + ahat_mod) * iWhat;
             // nu_B = (1 + a_hat) * (1 + qbar - mu*rbarsq)  (paper eq 47)
-            const Real nub = (1.0 + ahat_mod / (1 + ehat)) * (1.0 + qbar - mu * rbarsq);
-            const Real nuhat = std::max(nua, nub);
+            const Real nub = (1 + ehat + ahat_mod) * (1.0 + qbar - mu * rbarsq);
+            const Real nuhat = std::max(nua, nub); //nua nd nub are multiplied by (1 + eps) here, to avoid the division (...) / (1 + eps) in the paper, which can cause roundoff issues.
 
-            return mu * (nuhat + mu * rbarsq) - 1;
+            return mu * (nuhat + mu * rbarsq * (1 + ehat)) - (1 + ehat);
         }
 
         // Residual for finding bracket values
