@@ -59,12 +59,14 @@
 
 // General template
 // We define a specialization based on the Inverter::Type parameter
+#include "impl/Kokkos_Error.hpp"
 #include "invert_template.hpp"
 
 #include "coordinate_utils.hpp"
 //#include "floors_functions.hpp"
 #include "grmhd_functions.hpp"
 #include "kharma_utils.hpp"
+#include <cstdio>
 
 // This isn't a vecloop, also it takes an argument.
 // Left it in since it's useful and all over Phoebus, maybe we'll adopt it
@@ -78,33 +80,48 @@ namespace Inverter {
 template<typename T, typename Callable>
 KOKKOS_FUNCTION
 T bisect(Callable&& f, const T& a, const T& b, const T& atol){
-    // does not care for number of iterations, just keeps running until atol is met or
+    // Uses false position method with Illinois algorithm for acceleration.
+    // Does not care for number of iterations, just keeps running until atol is met or
     // machine precision is reached. Returns the best guess so far if machine precision is reached.
-    T err = 2*atol+1;
-    T _a = a;
-    T _b = b;
-    T c = a;
-    T fm;
+    T zm = a;
+    T zp = b;
+    T fm = f(zm);
+    T fp = f(zp);
 
-    assert((f(a) * f(b) <= 0) && "Root not bracketed" );
-    
-    while (err > atol){
-        c = (_a+_b)/2;
-        if (c == _a || c == _b){
-            // reached machine precision limit, return the best guess so far
-            break;
-        }
-        fm = f(c);
-        if (f(_a) * fm  > 0){
-            _a = c;
-        }
-        else{
-            _b = c;
-        }
-        err = std::abs(fm);
+    KOKKOS_ASSERT((fm * fp <= 0) && "Root not bracketed");
+
+    // If bracket already within tolerances, return midpoint
+    if ((m::abs(zm-zp) < atol) || ((m::abs(fm) + m::abs(fp)) < 2.0*atol)) {
+        return 0.5*(zm + zp);
     }
 
-    return _b;
+    T z = 0.5*(zm + zp);
+    
+    while (true) {
+        z = (zm*fp - zp*fm)/(fp-fm);  // linear interpolation to point f(z)=0
+        T fz = f(z);
+        if ( (z-zm) * (z-zp) >= 0) {
+            // Check for machine precision (z collapsed to bracket)
+            break;
+        } else if ((m::abs(zm-zp) < atol) || (m::abs(fz) < atol)) {
+            // Check for convergence
+            break;
+        } else if (fz*fp < 0.0) {
+            // assign zm-->zp if root bracketed by [z,zp]
+            zm = zp;
+            fm = fp;
+            zp = z;
+            fp = fz;
+        } else {
+            // assign zp-->z if root bracketed by [zm,z]
+            // 1/2 comes from "Illinois algorithm" to accelerate convergence
+            fm = 0.5*fm;
+            zp = z;
+            fp = fz;
+        }
+    }
+    
+    return std::max(zm, zp); // For out purposes, we want the upper bracket near the solution. max(zm, zp) is required since the illinois algorithm can swap the brackets.
 }
 
 /**
@@ -129,34 +146,39 @@ class KastaunResidual {
         }
 
         KOKKOS_FORCEINLINE_FUNCTION
-        Real x_mu(const Real mu)
+        Real x_mu(const Real mu) const
         {
             return 1 / (1 + mu * b_sq);
         }
+
         KOKKOS_FORCEINLINE_FUNCTION
-        Real rbar_sq(const Real mu) {
-            const Real x = x_mu(mu);
+        Real rbar_sq(const Real mu, const Real x) const
+        {
             return x * (x * r_sq + mu * (1.0 + x) * rb_sq);
         }
+
         KOKKOS_FORCEINLINE_FUNCTION
-        Real qbar_mu(const Real mu) {
-            const Real x = x_mu(mu);
+        Real qbar_mu(const Real mu, const Real x) const
+        {
             const Real mux = mu * x;
             return q - 0.5 * (b_sq + mux * mux * (b_sq * r_sq - rb_sq));
         }
+
         KOKKOS_FORCEINLINE_FUNCTION
-        Real vsq_hat(const Real mu) {
-            Real mu_sq_rbarsq = mu * mu * rbar_sq(mu);
+        Real vsq_hat(const Real mu, const Real rbar_sq) const
+        {
+            Real mu_sq_rbarsq = mu * mu * rbar_sq;
             if (mu_sq_rbarsq < v0_sq){
                 return mu_sq_rbarsq;
             } else {
                 return v0_sq;
             }
         }
+
         KOKKOS_FORCEINLINE_FUNCTION
-        Real W_sq(const Real mu)
+        Real W_sq(const Real mu, const Real rbar_sq) const
         {
-            Real vsq_val = mu * mu * rbar_sq(mu);
+            Real vsq_val = mu * mu * rbar_sq;
             if (vsq_val < v0_sq) {
                 return 1.0 / (1.0 - vsq_val);
             } else {
@@ -165,9 +187,9 @@ class KastaunResidual {
         }
 
         KOKKOS_FORCEINLINE_FUNCTION
-        Real iW_sq(const Real mu)
+        Real iW_sq(const Real mu, const Real rbar_sq) const
         {
-            Real vsq_val = mu * mu * rbar_sq(mu);
+            Real vsq_val = mu * mu * rbar_sq;
             if (vsq_val < v0_sq) {
                 return 1.0 - vsq_val;
             } else {
@@ -175,45 +197,39 @@ class KastaunResidual {
             }
         }
 
-
         KOKKOS_FORCEINLINE_FUNCTION
-        Real W(const Real mu)
+        Real rho_hat(const Real mu, const Real rbar_sq) const
         {
-            return std::sqrt(W_sq(mu));
+            return D * std::sqrt(iW_sq(mu, rbar_sq));
         }
 
         KOKKOS_FORCEINLINE_FUNCTION
-        Real rho_hat(const Real mu) {
-            return D * std::sqrt(iW_sq(mu));
-        }
-        KOKKOS_FORCEINLINE_FUNCTION
-        Real ehat_mu(const Real mu)
+        Real ehat_mu(const Real mu, const Real rbar_sq_val, const Real q_bar_val) const
         {
-            const Real W_val = W(mu);
-            const Real q_bar_val = qbar_mu(mu);
-            const Real rr_bar_val = rbar_sq(mu);
-            const Real wminus1 = W_val - 1.0;
-            Real kinetic = vsq_hat(mu) * this->W_sq(mu) / (1.0 + W_val);
-            return W_val * (q_bar_val - mu * rr_bar_val) + kinetic;
+            const Real W_val = std::sqrt(W_sq(mu, rbar_sq_val));
+            Real kinetic = vsq_hat(mu, rbar_sq_val) * W_sq(mu, rbar_sq_val) / (1.0 + W_val);
+            return W_val * (q_bar_val - mu * rbar_sq_val) + kinetic;
         }
 
         KOKKOS_FORCEINLINE_FUNCTION
-        Real Phat(const Real mu)
+        Real Phat(const Real mu) const
         {
-            const Real rhohat_val = this->rho_hat(mu);
-            const Real ehat_val = ehat_mu(mu);
-            // return ehat_val * rhohat_val * (Gam - 1.0);
-            return D * ( (qbar_mu(mu) - mu * rbar_sq(mu)) + 1 - std::sqrt(iW_sq(mu)) );
+            const Real x = x_mu(mu);
+            const Real rbar_sq_val = rbar_sq(mu, x);
+            const Real qbar_val = qbar_mu(mu, x);
+            return D * ( (qbar_val - mu * rbar_sq_val) + 1 - std::sqrt(iW_sq(mu, rbar_sq_val)) );
         }
 
         // Evaluate residual at a value of mu.
         // Kastaun eqn 44
         KOKKOS_INLINE_FUNCTION
-        Real obj_fun(const Real mu) {
-            const Real rbarsq = rbar_sq(mu);
-            const Real qbar = qbar_mu(mu);
-            const Real iWhat = std::sqrt(iW_sq(mu));
-            const Real ehat = std::max(ehat_mu(mu), 0.);
+        Real obj_fun(const Real mu) const
+        {
+            const Real x = x_mu(mu);
+            const Real rbarsq = rbar_sq(mu, x);
+            const Real qbar = qbar_mu(mu, x);
+            const Real iWhat = std::sqrt(iW_sq(mu, rbarsq));
+            const Real ehat = std::max(ehat_mu(mu, rbarsq, qbar), 0.);
             // TODO this is ideal-only
             const Real ahat_mod = ehat * (Gam - 1.0);
 
@@ -229,14 +245,16 @@ class KastaunResidual {
         // Residual for finding bracket values
         // Kastaun eqn 49
         KOKKOS_FORCEINLINE_FUNCTION
-        Real bound_obj_fun(const Real mu) {
-            Real rbar_val = rbar_sq(mu);
+        Real bound_obj_fun(const Real mu) const
+        {
+            const Real x = x_mu(mu);
+            Real rbar_val = rbar_sq(mu, x);
             return mu * mu * (h0*h0 + rbar_val) - 1;
         }
 
     // private:
     Real D, h0, Gam; //provided
-    Real r_sq, rb_sq, b_sq, q, z0_sq, v0_sq; //derived / normalized
+    Real r_sq, rb_sq, b_sq, q, z0_sq, v0_sq; //derived-normalized
 };
 
 
@@ -274,9 +292,10 @@ KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_o
     }
 
     // Return raw (unclamped) values so the caller can detect unphysical states
+    const Real rbar_sq_val = res.rbar_sq(mu_out, res.x_mu(mu_out));
     P = res.Phat(mu_out);
-    rho = res.rho_hat(mu_out);
-    lfac = res.W(mu_out);
+    rho = res.rho_hat(mu_out, rbar_sq_val);
+    lfac = std::sqrt(res.W_sq(mu_out, rbar_sq_val));
 }
 
 /**
@@ -421,34 +440,27 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
 
             const Real e_actual = P(m_p.UU, k, j, i) / P(m_p.RHO, k, j, i);
             auto f = [&res, e_actual] (Real mu_val) {
-                return res.ehat_mu(mu_val) - e_actual;
+                const Real x = res.x_mu(mu_val);
+                const Real rbar_sq_val = res.rbar_sq(mu_val, x);
+                const Real qbar_val = res.qbar_mu(mu_val, x);
+                return res.ehat_mu(mu_val, rbar_sq_val, qbar_val) - e_actual;
             };
 
             // Rootfind for mu that would have produced the current e
             bool e_solve_failed = false;
-            Real mu_new = mu, mum = 0., mup = 1.;
+            Real mu_new = mu;
+            const Real mum = 0., mup = 1.;
             if (f(mum) * f(mup) > 0.) {
                 e_solve_failed = true;
             } else {
-                while (true) {
-                    Real muc = (mum + mup) / 2.;
-                    Real resv = m::abs(f(muc));
-                    if (resv < 1e-8 || m::abs((mup - mum) / 2) < 1e-10) {
-                        mu_new = muc;
-                        e_solve_failed = (resv > 1e-8);
-                        break;
-                    }
-                    // Same sign as left side -> center now left side
-                    if (f(muc) * f(mum) > 0.)
-                        mum = muc;
-                    else
-                        mup = muc;
-                }
+                mu_new = bisect(f, mum, mup, 1e-8);
+                e_solve_failed = (m::abs(f(mu_new)) > 1e-8);
             }
 
             // Reset only velocities with new mu
-            const Real x_new = 1.0 / (1.0 + mu_new * bsq);
-            const Real W_new = res.W(mu_new);
+            const Real x_new = res.x_mu(mu_new);
+            const Real rbar_sq_new = res.rbar_sq(mu_new, x_new);
+            const Real W_new = std::sqrt(res.W_sq(mu_new, rbar_sq_new));
             SPACELOOP(ii) P(m_p.U1 + ii, k, j, i) = std::max(W_new * mu_new * x_new, 0.) * (rcon[ii] + mu_new * bdotr * bu[ii]);
             return (e_solve_failed) ? static_cast<int>(Status::bad_velocity) : static_cast<int>(Status::floor);
         } else {
