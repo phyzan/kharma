@@ -217,7 +217,7 @@ class KastaunResidual {
             const Real x = x_mu(mu);
             const Real rbar_sq_val = rbar_sq(mu, x);
             const Real qbar_val = qbar_mu(mu, x);
-            return D * ( (qbar_val - mu * rbar_sq_val) + 1 - std::sqrt(iW_sq(mu, rbar_sq_val)) );
+            return D * (Gam - 1.0) * ( (qbar_val - mu * rbar_sq_val) + 1 - std::sqrt(iW_sq(mu, rbar_sq_val)) );
         }
 
         // Evaluate residual at a value of mu.
