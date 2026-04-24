@@ -130,9 +130,10 @@ T bisect(Callable&& f, const T& a, const T& b, const T& atol){
  */
 class KastaunResidual {
 
-    static constexpr Real W_max = 10000.;
-
     public:
+
+        static constexpr Real GAMMA_MAX = 1000.;
+
         KOKKOS_FUNCTION
         KastaunResidual(Real q, Real d, Real r_sq, Real rb_sq, Real b_sq, Real Gam, Real h0 = 1) : D(d), h0(h0), Gam(Gam), r_sq(r_sq), rb_sq(rb_sq), b_sq(b_sq), q(q) {
             // Cap z0_sq to limit the maximum Lorentz factor (W_max ~ W_max).
@@ -141,7 +142,7 @@ class KastaunResidual {
             // primitives that pass the P > 0 / rho > 0 checks without triggering fixup.
             // The cap must be on z0_sq (not v0_sq) so that W_sq/iW_sq, which use
             // 1 + z0_sq as the capped W^2, remain consistent.
-            z0_sq   = std::min(r_sq / (h0 * h0), W_max * W_max - 1.0);
+            z0_sq   = std::min(r_sq / (h0 * h0), GAMMA_MAX * GAMMA_MAX - 1.0);
             v0_sq   = z0_sq / (1 + z0_sq);
         }
 
@@ -335,7 +336,7 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
                     U(m_u.U2, k, j, i) * a_over_g,
                     U(m_u.U3, k, j, i) * a_over_g};
 
-    const Real ncov[GR_DIM] = {(Real) -alpha, 0., 0., 0.};
+    const Real ncov[GR_DIM] = {-alpha, 0., 0., 0.};
     Real ncon[GR_DIM];
     G.raise(ncov, ncon, k, j, i, loc);
     const Real q = -dot(Qcov, ncon)/D - 1; // TODO floor on this?

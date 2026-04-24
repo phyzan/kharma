@@ -227,6 +227,7 @@ TaskStatus SeedBFieldType(MeshBlockData<Real> *rc, ParameterInput *pin, IndexDom
         case BSeedType::r3s3:
         case BSeedType::r5s5:
         case BSeedType::gaussian:
+        case BSeedType::insane:
             // Torus parameters
             rin = pin->GetReal("torus", "rin");
             rmax = pin->GetReal("torus", "rmax");
@@ -454,6 +455,8 @@ TaskStatus SeedBField(MeshData<Real> *md, ParameterInput *pin)
             status = SeedBFieldType<BSeedType::wave>(rc, pin);
         } else if (b_field_type == "shock_tube") {
             status = SeedBFieldType<BSeedType::shock_tube>(rc, pin);
+        } else if (b_field_type == "insane") {
+            status = SeedBFieldType<BSeedType::insane>(rc, pin);
         } else {
             throw std::invalid_argument("Magnetic field seed type not supported: " + b_field_type);
         }

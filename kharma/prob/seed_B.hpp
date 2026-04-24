@@ -52,7 +52,7 @@ TaskStatus NormalizeBField(MeshData<Real> *md, ParameterInput *pin);
 
 // Internal representation of the field initialization preference, used for templating
 enum BSeedType{constant, monopole, orszag_tang, orszag_tang_a, wave, shock_tube,
-                sane, mad, mad_quadrupole, r3s3, r5s5, gaussian, bz_monopole, vertical, r1s2};
+                sane, mad, mad_quadrupole, r3s3, r5s5, gaussian, bz_monopole, vertical, r1s2, insane};
 
 #define SEEDA_ARGS GReal *x, const GReal *dxc, double rho, double rin, double min_A, double A0, double arg1, double rb
 
@@ -67,6 +67,12 @@ template<>
 KOKKOS_INLINE_FUNCTION Real seed_a<BSeedType::sane>(SEEDA_ARGS)
 {
     return m::max(rho - min_A, 0.);
+}
+
+template<>
+KOKKOS_INLINE_FUNCTION Real seed_a<BSeedType::insane>(SEEDA_ARGS)
+{
+    return m::max(rho - min_A, 0.) * x[1] * x[1];
 }
 
 // used in testing to exactly agree with harmpi

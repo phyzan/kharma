@@ -39,6 +39,7 @@
 #include "dirichlet.hpp"
 #include "grmhd_functions.hpp"
 #include "one_block_transmit.hpp"
+#include "../inverter/kastaun.hpp"
 
 /**
  * This package has any functions related to KHARMA's treatment of "domain" boundary conditions:
@@ -48,6 +49,9 @@
  * features related to GRMHD.  
  */
 namespace KBoundaries {
+
+
+static constexpr Real GAMMA_MAX = Inverter::KastaunResidual::GAMMA_MAX;
 
 /**
  * Choose which boundary conditions will be used based on inputs,
@@ -126,10 +130,8 @@ KOKKOS_INLINE_FUNCTION void check_inflow(const GRCoordinates &G, const VariableP
               G.gcov(Loci::center, j, i, 1, 3) * uvec[V1] * uvec[V3] +
               G.gcov(Loci::center, j, i, 2, 3) * uvec[V2] * uvec[V3]);
 
-        clip(vsq, 1.e-13, 1. - 1./(50.*50.));
-
-        gamma = 1./m::sqrt(1. - vsq);
-
+        gamma = vsq > 1. ? GAMMA_MAX : 1. / m::sqrt(1. - m::max(vsq, 0.));
+        
         VLOOP uvec[v] *= gamma;
         VLOOP P(index_u1 + v, k, j, i) = uvec[v];
     }
