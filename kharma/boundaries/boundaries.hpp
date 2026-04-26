@@ -130,8 +130,15 @@ KOKKOS_INLINE_FUNCTION void check_inflow(const GRCoordinates &G, const VariableP
               G.gcov(Loci::center, j, i, 1, 3) * uvec[V1] * uvec[V3] +
               G.gcov(Loci::center, j, i, 2, 3) * uvec[V2] * uvec[V3]);
 
-        gamma = vsq > 1. ? GAMMA_MAX : 1. / m::sqrt(1. - m::max(vsq, 0.));
-        
+        vsq = m::max(0., vsq);
+        if (vsq >= 1.) {
+            const Real vsq_max = 1. - 1. / (GAMMA_MAX * GAMMA_MAX);
+            VLOOP uvec[v] *= m::sqrt(vsq_max / vsq);
+            gamma = GAMMA_MAX;
+        } else {
+            gamma = 1. / m::sqrt(1. - vsq);
+        }
+
         VLOOP uvec[v] *= gamma;
         VLOOP P(index_u1 + v, k, j, i) = uvec[v];
     }
