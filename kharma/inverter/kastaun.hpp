@@ -129,7 +129,7 @@ Status bisect(T& out, Callable&& f, const T& a, const T& b, const T& atol, int m
         }
     }
     out = std::max(zm, zp); // For our purposes, we want the upper bracket near the solution. max(zm, zp) is required since the illinois algorithm can swap the brackets.
-    return iter < max_iter ? Status::success : Status::success;
+    return iter < max_iter ? Status::success : Status::max_iter;
 }
 
 /**
