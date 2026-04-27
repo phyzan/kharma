@@ -79,10 +79,17 @@ namespace Inverter {
 
 template<typename T, typename Callable>
 KOKKOS_FUNCTION
-T bisect(Callable&& f, const T& a, const T& b, const T& atol){
+Status bisect(T& out, Callable&& f, const T& a, const T& b, const T& atol, int max_iter){
     // Uses false position method with Illinois algorithm for acceleration.
-    // Does not care for number of iterations, just keeps running until atol is met or
-    // machine precision is reached. Returns the best guess so far if machine precision is reached.
+    /**
+    @param f: a function object which takes a T and returns a T, with a root between a and b
+    @param a: lower bound of root
+    @param b: upper bound of root
+    @param atol: absolute tolerance of f for convergence.
+    @param max_iter: maximum number of iterations
+    @note If the atol is too small (e.g. 0.), the function will return success if machine precision causes the brackets to collapse before max_iter is reached.
+
+    */
     T zm = a;
     T zp = b;
     T fm = f(zm);
@@ -92,12 +99,13 @@ T bisect(Callable&& f, const T& a, const T& b, const T& atol){
 
     // If bracket already within tolerances, return midpoint
     if ((m::abs(zm-zp) < atol) || ((m::abs(fm) + m::abs(fp)) < 2.0*atol)) {
-        return 0.5*(zm + zp);
+        out = 0.5*(zm + zp);
+        return Status::success;
     }
 
     T z = 0.5*(zm + zp);
-    
-    while (true) {
+    int iter = 0;
+    for (; iter < max_iter; iter++) {
         z = (zm*fp - zp*fm)/(fp-fm);  // linear interpolation to point f(z)=0
         T fz = f(z);
         if ( (z-zm) * (z-zp) >= 0) {
@@ -120,8 +128,8 @@ T bisect(Callable&& f, const T& a, const T& b, const T& atol){
             fp = fz;
         }
     }
-    
-    return std::max(zm, zp); // For out purposes, we want the upper bracket near the solution. max(zm, zp) is required since the illinois algorithm can swap the brackets.
+    out = std::max(zm, zp); // For our purposes, we want the upper bracket near the solution. max(zm, zp) is required since the illinois algorithm can swap the brackets.
+    return iter < max_iter ? Status::success : Status::success;
 }
 
 /**
@@ -259,7 +267,7 @@ class KastaunResidual {
 };
 
 
-KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_out, const Real q, const Real D, const Real r_sq, const Real rb_sq, const Real b_sq, const Real Gam, const Real tol) {
+KOKKOS_INLINE_FUNCTION Status get_prims(Real& P, Real& rho, Real& lfac, Real& mu_out, const Real q, const Real D, const Real r_sq, const Real rb_sq, const Real b_sq, const Real Gam, const Real tol, int max_iter) {
     const Real h0 = 1.;
     KastaunResidual res(q, D, r_sq, rb_sq, b_sq, Gam, h0);
     // Find upper bound for mu using eqn 49
@@ -269,9 +277,13 @@ KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_o
     if (res.r_sq < h0 * h0) {
         mu_max = 1.0 / h0;
     } else {
-        mu_max = bisect([&res](const Real mu){
+        // Request maximum accuracy for upper bracket (machine precision)
+        // as extreme conditions may require that. Usually very few iterations are required anyway,
+        // and no EoS calls are needed, so this is not an important bottleneck.
+        bisect(mu_max, [&res](const Real mu){
             return res.bound_obj_fun(mu);
-        }, mu_min, 1.0/h0, 0.0);
+        }, mu_min, 1.0/h0, 0.0, max_iter);
+        
 
         // Per Kastaun et al. Sec IV A: nudge mu_max slightly upward to
         // guarantee that the master function root is strictly contained.
@@ -281,15 +293,16 @@ KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_o
     }
     
     Real f_upper = res.obj_fun(mu_max);
-
+    Status result;
     if (f_upper <= 0.) {
-        // mu_max is already at or past the root (can happen for extreme
+        // mu_max is at the root up to machine precision (can happen for extreme
         // inputs where ehat < 0 is clamped).  mu_max ~ root, use directly.
         mu_out = mu_max;
+        result = Status::success;
     } else {
-        mu_out = bisect([&res](const Real mu){
+        result = bisect(mu_out, [&res](const Real mu){
             return res.obj_fun(mu);
-        }, mu_min, mu_max, tol);
+        }, mu_min, mu_max, tol, max_iter);
     }
 
     // Return raw (unclamped) values so the caller can detect unphysical states
@@ -297,6 +310,7 @@ KOKKOS_INLINE_FUNCTION void get_prims(Real& P, Real& rho, Real& lfac, Real& mu_o
     P = res.Phat(mu_out);
     rho = res.rho_hat(mu_out, rbar_sq_val);
     lfac = std::sqrt(res.W_sq(mu_out, rbar_sq_val));
+    return result;
 }
 
 /**
@@ -390,14 +404,7 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
     
     // Solve using get_prims
     Real P_prim, rho_prim, W, mu;
-    get_prims(P_prim, rho_prim, W, mu, q, D, rsq, rbsq, bsq, gam, tol);
-
-    // Detect unphysical solutions: if the raw Phat < 0 (ehat < 0),
-    // the conserved variables don't correspond to a valid physical state.
-    // Clamp primitives but flag for fixup so the neighbor-averaging
-    // system can correct these cells (matching old behavior where the
-    // Illinois method would return max_iter for these cases).
-    const bool unphysical = (P_prim < 0.) || (rho_prim <= 0.);
+    Status inversion_status = get_prims(P_prim, rho_prim, W, mu, q, D, rsq, rbsq, bsq, gam, tol, max_iterations);
 
     // Set primitive variables
     // These values should be as *raw* as possible, whether or not they respect the floors
@@ -414,8 +421,7 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
     // If we should try to recover velocity, do it in this function
     if (!recover_velocity) {
         // Flag unphysical solutions so FixUtoP can neighbor-average them
-        return unphysical ? static_cast<int>(Status::neg_u)
-                          : static_cast<int>(Status::success);
+        return static_cast<int>(inversion_status);
     } else {
         // Calculate P->U on the inverted values
         const Real rho = P(m_p.RHO, k, j, i);
@@ -454,7 +460,7 @@ KOKKOS_INLINE_FUNCTION int u_to_p<Type::kastaun>(const GRCoordinates& G, const V
             if (f(mum) * f(mup) > 0.) {
                 e_solve_failed = true;
             } else {
-                mu_new = bisect(f, mum, mup, 1e-8);
+                bisect(mu_new, f, mum, mup, 1e-8, max_iterations);
                 e_solve_failed = (m::abs(f(mu_new)) > 1e-8);
             }
 
