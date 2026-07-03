@@ -36,6 +36,7 @@
 #include <complex>
 
 #include "decs.hpp"
+#include "types.hpp"
 
 
 using namespace std::literals::complex_literals;

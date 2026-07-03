@@ -75,6 +75,7 @@ add_executable(${EXE_NAME} ${EXE_NAME_SRC})
 
 target_link_libraries(${EXE_NAME} PUBLIC kokkos)
 target_link_libraries(${EXE_NAME} PUBLIC parthenon)
+target_link_libraries(${EXE_NAME} PUBLIC csv)
 # Sometimes helps with OpenMP
 #target_link_libraries(${EXE_NAME} PUBLIC gomp)
 target_link_libraries(${EXE_NAME} PUBLIC z)

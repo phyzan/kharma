@@ -64,6 +64,7 @@
 #include "elec/driven_turbulence.hpp"
 #include "elec/hubble.hpp"
 #include "elec/noh.hpp"
+#include "collapsar.hpp"
 
 using namespace parthenon;
 
@@ -125,6 +126,8 @@ void KHARMA::ProblemGenerator(MeshBlock *pmb, ParameterInput *pin)
     } else if (prob == "vacuum" || prob == "bz_monopole") {
         // No need for a separate initializer, just seed w/floors
         status = Floors::ApplyInitialFloors(pin, rc.get(), IndexDomain::interior);
+    } else if (prob == "collapsar") {
+        status = InitializeCollapsar(rc, pin);
     }
 
     // If we didn't initialize a problem, yell

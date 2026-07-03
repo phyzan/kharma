@@ -61,6 +61,9 @@ add_subdirectory(external/parthenon)
 include_directories(external/parthenon/src)
 # mpark::variant is header only, don't build anything
 include_directories(external/variant/include)
+# Build csv-parser library
+set(CSV_CXX_STANDARD 17 CACHE STRING "C++ standard for csv-parser")
+add_subdirectory(external/csv-parser)
 # Our hacked-up version of the Kokkos kernels
 include_directories(external/kokkos-kernels)
 

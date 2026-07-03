@@ -249,6 +249,20 @@ TaskStatus SeedBFieldType(MeshBlockData<Real> *rc, ParameterInput *pin, IndexDom
             if (m::abs(n-1.5) < 0.01) rb = rs * rs * 80. / (27. * gam);
             else rb = (4 * (n + 1)) / (2 * (n + 3) - 9) * rs;
             break;
+        case BSeedType::dipole:
+            // make sure A0 and min_A are NOT in the input file
+            if (pin->DoesParameterExist("b_field", "A0")) {
+                PARTHENON_THROW("A0 should not be specified for dipole field");
+            }
+            if (pin->DoesParameterExist("b_field", "min_A")) {
+                PARTHENON_THROW("min_A should not be specified for dipole field");
+            }
+            
+            //"A0" is actually B0, but this way we skip initializing a new variables in the scope if this switch case
+            A0 = pin->GetReal("b_field", "B0");
+            rb = pin->GetReal("b_field", "r0");
+            A0 = A0 * rb * rb * rb;
+            break;
         default:
             break;
         }
@@ -457,6 +471,8 @@ TaskStatus SeedBField(MeshData<Real> *md, ParameterInput *pin)
             status = SeedBFieldType<BSeedType::shock_tube>(rc, pin);
         } else if (b_field_type == "insane") {
             status = SeedBFieldType<BSeedType::insane>(rc, pin);
+        } else if (b_field_type == "dipole") {
+            status = SeedBFieldType<BSeedType::dipole>(rc, pin);
         } else {
             throw std::invalid_argument("Magnetic field seed type not supported: " + b_field_type);
         }
