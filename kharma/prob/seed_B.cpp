@@ -42,6 +42,7 @@
 #include "flux.hpp"
 #include "fm_torus.hpp"
 #include "grmhd_functions.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon;
 
@@ -250,17 +251,11 @@ TaskStatus SeedBFieldType(MeshBlockData<Real> *rc, ParameterInput *pin, IndexDom
             else rb = (4 * (n + 1)) / (2 * (n + 3) - 9) * rs;
             break;
         case BSeedType::dipole:
-            // make sure A0 and min_A are NOT in the input file
-            if (pin->DoesParameterExist("b_field", "A0")) {
-                PARTHENON_THROW("A0 should not be specified for dipole field");
-            }
-            if (pin->DoesParameterExist("b_field", "min_A")) {
-                PARTHENON_THROW("min_A should not be specified for dipole field");
-            }
             
             //"A0" is actually B0, but this way we skip initializing a new variables in the scope if this switch case
-            A0 = pin->GetReal("b_field", "B0");
-            rb = pin->GetReal("b_field", "r0");
+            // values of A0 and min_A in the parameter file will be ignored
+            A0 = pin->GetReal("b_field", "B0") / pin->GetReal("collapsar", "units.magnetic_field");
+            rb = pin->GetReal("b_field", "r0") / pin->GetReal("collapsar", "units.length");
             A0 = A0 * rb * rb * rb;
             break;
         default:
