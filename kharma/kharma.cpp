@@ -37,7 +37,9 @@
 
 #include <parthenon/parthenon.hpp>
 
+#include "basic_types.hpp"
 #include "decs.hpp"
+#include "utils/error_checking.hpp"
 #include "version.hpp"
 
 // Packages
@@ -63,6 +65,7 @@
 #include "boundaries.hpp"
 #include "resize_restart.hpp"
 #include "resize_restart_kharma.hpp"
+
 
 std::shared_ptr<KHARMAPackage> KHARMA::InitializeGlobals(ParameterInput *pin, std::shared_ptr<Packages_t>& packages)
 {
@@ -190,7 +193,28 @@ void KHARMA::FixParameters(ParameterInput *pin, bool is_parthenon_restart)
         if (!pin->DoesParameterExist("parthenon/mesh", "x1min") ||
             !pin->DoesParameterExist("parthenon/mesh", "x1max")) {
             // Outer radius is always specified
-            GReal Rout = pin->GetReal("coordinates", "r_out");
+            GReal Rout;
+            if (pin->GetString("parthenon/job", "problem_id") == "collapsar"){
+                // r_out must not be in the parameter file
+                if (pin->DoesParameterExist("coordinates", "r_out")) {
+                    PARTHENON_THROW("Do not provide the dimensionless r_out, provide r_out_cm instead");
+                } else if (!pin->DoesParameterExist("collapsar", "r_out_cm")){
+                    PARTHENON_THROW("r_out_cm not provided");
+                }
+                GReal r_out_cm = pin->GetReal("collapsar", "r_out_cm");
+
+                // Now determine the length unit
+                const Real M_BH = pin->GetReal("collapsar", "M_BH"); // in solar masses
+                const Real M_SUN = MSUN_cgs<Real>;    // Solar mass in grams
+                const Real G = GNEWT_cgs<Real>;   // G in cm³/g/s²
+                const Real c = CL_cgs<Real>;      // light speed in cm/s
+                const Real mass_unit = M_BH * M_SUN; // in grams
+                const Real length_unit = G * mass_unit / (c * c); // in cm
+                Rout = r_out_cm/length_unit;
+                pin->GetOrAddReal("coordinates", "r_out", Rout);
+            } else {
+                Rout = pin->GetReal("coordinates", "r_out");
+            }
             GReal x1max = tmp_coords.r_to_native(Rout);
             pin->GetOrAddReal("parthenon/mesh", "x1max", x1max);
 

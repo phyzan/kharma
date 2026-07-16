@@ -162,6 +162,16 @@ inline int MPIBarrier()
 #endif
 }
 
+
+template<typename T>
+constexpr T MSUN_cgs = 1.989e33;    // Solar mass in grams
+
+template<typename T>
+constexpr T GNEWT_cgs = 6.674e-8;   // G in cm³/g/s²
+
+template<typename T>
+constexpr T CL_cgs = 2.998e10;      // c in cm/s
+
 // A few generic "NDArray" overloads for readability.
 // TODO torn on futures of these: they're explicitly per-block
 // Shape+3D ("Grid") arrays

@@ -3,22 +3,16 @@
 #include "basic_types.hpp"
 #include "coordinates/coordinates.hpp"
 #include "decs.hpp"
+#include "internal/common.hpp"
 #include "internal/csv_reader.hpp"
 #include "internal/csv_row.hpp"
 #include "types.hpp"
 #include "floors.hpp"
+#include "utils/constants.hpp"
 #include <stdexcept>
 #include <csv.hpp>
 
 using namespace parthenon;
-
-namespace kharma_constants {
-
-constexpr Real MSUN = 1.989e33;    // Solar mass in grams
-constexpr Real GNEWT = 6.674e-8;   // G in cm³/g/s²
-constexpr Real CL = 2.998e10;      // c in cm/s
-    
-} // namespace kharma_constants
 
 
 template<typename T, typename Callable>
@@ -127,9 +121,9 @@ inline TaskStatus InitializeCollapsar(std::shared_ptr<MeshBlockData<Real>>& rc, 
     const Real M_BH = pin->GetReal("collapsar", "M_BH"); // in solar masses
     const Real density_unit = pin->GetReal("collapsar", "density_unit"); // in g/cm³
 
-    const Real M_SUN = kharma_constants::MSUN;    // Solar mass in grams
-    const Real G = kharma_constants::GNEWT;   // G in cm³/g/s²
-    const Real c = kharma_constants::CL;      // light speed in cm/s
+    const Real M_SUN = MSUN_cgs<Real>;    // Solar mass in grams
+    const Real G = GNEWT_cgs<Real>;   // G in cm³/g/s²
+    const Real c = CL_cgs<Real>;      // light speed in cm/s
     const Real mass_unit = M_BH * M_SUN; // in grams
     const Real time_unit = G * mass_unit / (c * c * c); // in seconds
     const Real length_unit = G * mass_unit / (c * c); // in cm
