@@ -184,14 +184,15 @@ inline TaskStatus InitializeCollapsar(std::shared_ptr<MeshBlockData<Real>>& rc, 
     // Find the radius where the mass of the star is equal to the requested black hole mass, or equivalently, the core radius where the mass enclosed
     Real r_core = bisect([&](Real r) { return M_interp(r) - 1.0; },r_min, r_max, 0.0);
 
-
+    const Real r_out = pin->GetReal("coordinates", "r_out");
     if (MPIRank0() && pmb->gid == 0){
-        std::cout << "rmin = " << r_min << " (in code units)" << std::endl;
-        std::cout << "rmax = " << r_max << " (in code units)" << std::endl;
+        std::cout << "rmin (profile) = " << r_min << " (in code units)" << std::endl;
+        std::cout << "rmax (profile) = " << r_max << " (in code units)" << std::endl;
+        std::cout << "r_out = " << r_out << " (in code units)" << std::endl;
         std::cout << "length unit = " << length_unit << " cm" << std::endl;
         std::cout << "Core radius = " << r_core << " (in code units)" << std::endl;
         std::cout << "Core radius = " << r_core*length_unit << " cm" << std::endl;
-        std::cout << "Mass of the star = " << M_interp(r_max) * mass_unit / M_SUN << " M_sun" << std::endl;
+        std::cout << "Mass of the star = " << (M_r.back() * mass_unit / M_SUN) << " M_sun" << std::endl;
     }
 
 
