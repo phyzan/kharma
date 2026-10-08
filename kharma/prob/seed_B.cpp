@@ -251,9 +251,12 @@ TaskStatus SeedBFieldType(MeshBlockData<Real> *rc, ParameterInput *pin, IndexDom
             else rb = (4 * (n + 1)) / (2 * (n + 3) - 9) * rs;
             break;
         case BSeedType::dipole:
-            
-            //"A0" is actually B0, but this way we skip initializing a new variables in the scope if this switch case
-            // values of A0 and min_A in the parameter file will be ignored
+            // Reuse A0/rb rather than introducing new variables in this scope, so the
+            // values of b_field/A0 and b_field/min_A in the parameter file are ignored.
+            // b_field/B0 (Gauss) and b_field/r0 (cm) are converted to code units, then
+            // folded into the dipole moment A0 = B0 * r0^3.  With the A_phi used in
+            // seed_a<dipole>, that makes B0 the poloidal field strength at the equator
+            // at radius r0: there B_rhat = 0 and |B_pol| = B_thhat = A0 / r0^3 = B0.
             A0 = pin->GetReal("b_field", "B0") / pin->GetReal("collapsar", "units.magnetic_field");
             rb = pin->GetReal("b_field", "r0") / pin->GetReal("collapsar", "units.length");
             A0 = A0 * rb * rb * rb;
