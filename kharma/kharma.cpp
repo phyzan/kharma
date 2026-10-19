@@ -37,7 +37,9 @@
 
 #include <parthenon/parthenon.hpp>
 
+#include "basic_types.hpp"
 #include "decs.hpp"
+#include "utils/error_checking.hpp"
 #include "version.hpp"
 
 // Packages
@@ -214,7 +216,26 @@ void KHARMA::FixParameters(ParameterInput* pin, bool is_parthenon_restart)
         if (!pin->DoesParameterExist("parthenon/mesh", "x1min") ||
             !pin->DoesParameterExist("parthenon/mesh", "x1max")) {
             // Outer radius is always specified
-            GReal Rout = pin->GetReal("coordinates", "r_out");
+            GReal Rout;
+            if (pin->GetString("parthenon/job", "problem_id") == "collapsar"){
+                // r_out must not be in the parameter file
+                if (pin->DoesParameterExist("coordinates", "r_out")) {
+                    PARTHENON_THROW("Do not provide the dimensionless r_out, provide r_out_cm instead");
+                } else if (!pin->DoesParameterExist("collapsar", "r_out_cm")){
+                    PARTHENON_THROW("r_out_cm not provided");
+                }
+                // The length unit G M / c^2 is exactly what UnitConversions derives from
+                // units/geom_mass_msun (or geom_mass_g, or geom_length_cm).  Packages are
+                // not initialized yet here, but UnitConversions only needs `pin`.
+                Units::UnitConversions units(pin);
+                PARTHENON_REQUIRE(!units.IsScaleFree(),
+                    "The collapsar problem needs physical units: set units/scale_free = false "
+                    "and exactly one of units/geom_mass_msun, geom_mass_g, geom_length_cm");
+                Rout = pin->GetReal("collapsar", "r_out_cm") * units.GetLengthCGSToCode();
+                pin->GetOrAddReal("coordinates", "r_out", Rout);
+            } else {
+                Rout = pin->GetReal("coordinates", "r_out");
+            }
             GReal x1max = tmp_coords.r_to_native(Rout);
             pin->GetOrAddReal("parthenon/mesh", "x1max", x1max);
 

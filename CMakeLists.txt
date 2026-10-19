@@ -82,6 +82,20 @@ include_directories(external/kokkos-kernels/blas/impl)
 include_directories(external/kokkos-kernels/common/src)
 # We do NOT build kokkos-kernels, we only need device-side functions
 
+# csv-parser.  NOT header-only: include/internal/*.cpp must be compiled, which the
+# library's own `csv` target does.  That target also exports its header directory via
+# target_include_directories(csv INTERFACE ../) and links Threads itself, so simply
+# linking `csv` is sufficient -- see kharma/CMakeLists.txt.
+# Note single_include/csv.hpp is only a shim that #errors; the real umbrella header
+# is include/csv.hpp, so test for that one.
+set(CSV_PARSER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/csv-parser)
+if (NOT EXISTS ${CSV_PARSER_DIR}/include/csv.hpp)
+  message(FATAL_ERROR "csv-parser not found, run: git submodule update --init external/csv-parser")
+endif()
+# Keep the static lib on the same standard as KHARMA
+set(CSV_CXX_STANDARD ${CMAKE_CXX_STANDARD} CACHE STRING "C++ standard for csv-parser")
+add_subdirectory(external/csv-parser)
+
 # Singularity-eos options
 set(SINGULARITY_USE_SPINER ON CACHE BOOL "" FORCE)
 set(SINGULARITY_USE_KOKKOS ON CACHE BOOL "" FORCE)

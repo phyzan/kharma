@@ -171,3 +171,9 @@ using GridVector = parthenon::ParArrayND<parthenon::Real>;
 using GeomScalar = parthenon::ParArrayND<parthenon::Real>;
 using GeomTensor2 = parthenon::ParArrayND<parthenon::Real>;
 using GeomTensor3 = parthenon::ParArrayND<parthenon::Real>;
+
+
+// CGS physical constants come from parthenon's constants.hpp, via
+//   using pc = parthenon::constants::PhysicalConstants<parthenon::constants::CGS>;
+// and the solar mass from Units::solar_mass in units/units.hpp.
+// Code<->CGS conversions come from Units::UnitConversions; see kharma/units/.

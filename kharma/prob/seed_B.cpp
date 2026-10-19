@@ -42,6 +42,9 @@
 #include "flux.hpp"
 #include "fm_torus.hpp"
 #include "grmhd_functions.hpp"
+#include "units.hpp"
+
+#include <utils/constants.hpp>
 
 using namespace parthenon;
 
@@ -240,6 +243,29 @@ TaskStatus SeedBFieldType(MeshBlockData<Real>* rc, ParameterInput* pin,
                 else
                     rb = (4 * (n + 1)) / (2 * (n + 3) - 9) * rs;
                 break;
+            case BSeedType::dipole: {
+                // Reuse A0/rb rather than introducing new variables in this scope, so the
+                // values of b_field/A0 and b_field/min_A in the parameter file are ignored.
+                // b_field/B0 (Gauss) and b_field/r0 (cm) are converted to code units, then
+                // folded into the dipole moment A0 = B0 * r0^3.  With the A_phi used in
+                // seed_a<dipole>, that makes B0 the poloidal field strength at the equator
+                // at radius r0: there B_rhat = 0 and |B_pol| = B_thhat = A0 / r0^3 = B0.
+                // The normalization is physical, so take the scales from the Units
+                // package rather than from any one problem's own parameters.
+                Units::UnitConversions units(pin);
+                PARTHENON_REQUIRE(!units.IsScaleFree(),
+                    "b_field/type=dipole gives B0 in Gauss and r0 in cm, so it needs physical "
+                    "units: set units/scale_free = false and the units/geom_* and units/fluid_* "
+                    "parameters");
+                using pc = parthenon::constants::PhysicalConstants<parthenon::constants::CGS>;
+                // Gaussian-unit field scale, c*sqrt(4 pi rho)
+                const Real B_unit =
+                    pc::c * m::sqrt(4.0 * M_PI * units.GetMassDensityCodeToCGS());
+                A0 = pin->GetReal("b_field", "B0") / B_unit;
+                rb = pin->GetReal("b_field", "r0") * units.GetLengthCGSToCode();
+                A0 = A0 * rb * rb * rb;
+                break;
+            }
             default:
                 break;
         }
@@ -459,6 +485,8 @@ TaskStatus SeedBField(MeshData<Real>* md, ParameterInput* pin)
             status = SeedBFieldType<BSeedType::wave>(rc, pin);
         } else if (b_field_type == "shock_tube") {
             status = SeedBFieldType<BSeedType::shock_tube>(rc, pin);
+        } else if (b_field_type == "dipole") {
+            status = SeedBFieldType<BSeedType::dipole>(rc, pin);
         } else {
             throw std::invalid_argument(
                 "Magnetic field seed type not supported: " + b_field_type);

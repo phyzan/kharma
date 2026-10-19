@@ -72,7 +72,8 @@ enum BSeedType {
     split_monopole,
     split_monopole_const,
     vertical,
-    r1s2
+    r1s2,
+    dipole
 };
 
 #define SEEDA_ARGS                                                                       \
@@ -93,6 +94,20 @@ template<>
 KOKKOS_INLINE_FUNCTION Real seed_a<BSeedType::sane>(SEEDA_ARGS)
 {
     return m::max(rho - min_A, 0.);
+}
+
+
+// Dipole field.  Note seed_a returns the *covariant* component A_phi
+// (per unit dphi), not the orthonormal A_phihat = A_phi / (r sin(th)),
+// since the curl in b_flux_ct_functions.hpp forms sqrt(-g) B^i = eps^ijk d_j A_k.
+// For a dipole of moment A0: A_phihat = A0 sin(th) / r^2, hence
+// A_phi = r sin(th) * A_phihat = A0 sin^2(th) / r.
+// This yields B_r_hat = 2 A0 cos(th) / r^3 and B_th_hat = A0 sin(th) / r^3.
+template<>
+KOKKOS_INLINE_FUNCTION
+Real seed_a<BSeedType::dipole>(SEEDA_ARGS)
+{
+    return A0 * m::sin(x[2]) * m::sin(x[2]) / x[1];
 }
 
 // used in testing to exactly agree with harmpi
