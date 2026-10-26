@@ -162,7 +162,7 @@ inline TaskStatus InitializeCollapsar(
     GridVector uvec = rc->Get("prims.uvec").data;
 
     const Coordinates_t& GR = pmb->coords;
-    Real gam = pmb->packages.Get("GRMHD")->Param<Real>("gamma");
+    Real gam = pmb->packages.Get("eos")->Param<Real>("gm1") + 1.0;
 
     // Read the file with numerical values
     if (file.empty()) {
